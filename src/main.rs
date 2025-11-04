@@ -61,7 +61,7 @@ fn get_total_duration(path: &Path) -> Duration {
 }
 
 const NAME: &str = "猫东东的音乐播放器";
-const VERSION: &str = "1.0.0";
+const VERSION: &str = "1.0.1";
 const URL: &str = "https://github.com/xa1st/music-player-cli";
 
 // ===============================================
@@ -73,6 +73,9 @@ struct Args {
     /// 要播放的音乐文件路径
     #[clap(short, long)]
     file: String, // 音乐文件路径
+    /// 启用纯净模式,
+    #[clap(short, long)]
+    clean: bool,
 }
 
 // ===============================================
@@ -125,19 +128,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stdout = std::io::stdout();
     // 隐藏光标以减少闪烁
     execute!(stdout, cursor::Hide)?;
-    // 播放时显示的界面
-    println!("\n=======================================================");
-    // 使用格式化宏 {NAME:<40} 来确保 NAME 后面有足够的空格，保持右侧对齐
-    println!("  {} (v.{})", NAME, VERSION);
-    println!("  主页: {}", URL);
-    println!("=======================================================");
-    println!("==================【🕹️ 控 制 说 明】===================");
-    println!("  [P] 键: ......................... 暂停播放");
-    println!("  [空格] 键: ...................... 恢复播放");
-    println!("  [Q] 键: ......................... 退出播放");
-    println!("=======================================================");
-    // 留白一行给进度条
-    // println!("\n");
+
+    if !args.clean { 
+        // 播放时显示的界面
+        println!("\n=======================================================");
+        // 使用格式化宏 {NAME:<40} 来确保 NAME 后面有足够的空格，保持右侧对齐
+        println!("  {} (v.{})", NAME, VERSION);
+        println!("  主页: {}", URL);
+        println!("=======================================================");
+        println!("==================【🕹️ 控 制 说 明】===================");
+        println!("  [P] 键: ......................... 暂停播放");
+        println!("  [空格] 键: ...................... 恢复播放");
+        println!("  [Q] 键: ......................... 退出播放");
+        println!("=======================================================");
+        // 留白一行给进度条
+        // println!("\n");
+    }
     loop {
         // 时间计算
         if sink.is_paused() {
@@ -153,7 +159,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             // 格式化当前时间字符串
             let current_time_str = format!("{:02}:{:02}", current_time.as_secs() / 60, current_time.as_secs() % 60);
             // 构建要求的显示字符串
-            let display_text = format!("♪ 正在播放: [{} - {}] - [{}-{}]", title, artist, current_time_str, total_duration_str);
+            let display_text = format!("🎝 正在播放: [{} - {}] - [{}-{}]", title, artist, current_time_str, total_duration_str);
             // 打印时间信息，使用 \r 和 ClearType::CurrentLine 确保覆盖
             execute!(stdout, crossterm::cursor::MoveToColumn(0), crossterm::terminal::Clear(ClearType::CurrentLine))?;
             print!("{}", display_text);
