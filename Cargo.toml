@@ -1,6 +1,6 @@
 [package]
 name = "mddplayer"
-version = "1.3.3"
+version = "1.3.4"
 edition = "2021"
 authors = ["Xa1st <xux851@gmail.com>"]
 description = "一个简易的音乐播放器,用于在命令行内播放音乐，只支持mp3/flac/ogg/aac格式的音频文件。"
@@ -20,6 +20,8 @@ lofty = { version = "0.22" }
 symphonia = { version = "0.5.5" }
 # 随机数
 rand = "0.8"
+# 用于计划符串宽度
+unicode-width = "0.2"
 
 # 可选：如果怀疑内存碎片化严重，可以添加 jemallocator
 #jemallocator = "0.5" 
@@ -30,13 +32,14 @@ rand = "0.8"
 # 级别 3 是最激进的优化，生成最小的二进制文件
 opt-level = 3 
 # 启用链接时优化 (最重要的一步)
-lto = true 
+lto = true
 # 禁用调试符号（默认 release 模式下是禁用的，但最好明确设置）
 debug = false
 # 优化生成的可执行文件的大小（尝试使用 z 或 s）
 codegen-units = 1 
 # 移除所有符号表信息，进一步减小体积
 strip = "symbols"
+
 
 # 【重点：添加 build-dependencies】
 [build-dependencies]

@@ -10,6 +10,7 @@ use std::time::{Instant, Duration};
 use std::{fs::File, io::{self, BufReader, Write}};
 use std::path::PathBuf;
 use rand::seq::SliceRandom; 
+use unicode_width::UnicodeWidthStr;
 
 // 从 cli 模块引入常量和参数结构体
 use cli::{Args, NAME, VERSION, URL};
@@ -101,14 +102,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if !args.clean {
         // 打印程序信息和操作指南
         println!("\n=======================================================");
-        println!("  {} (v.{})", NAME, VERSION);
-        println!("  主页: {}", URL);
+        println!("  {} (v.{})", NAME, VERSION);
+        println!("  主页: {}", URL);
         println!("=======================================================");
         println!("==================【🕹️ 控 制 说 明】===================");
-        println!("  [P] 键: ...... 暂停播放  [空格] 键: ...... 恢复播放");
-        println!("  [←] 键: ...... 上一首    [→] 键: ...... 下一首");
-        println!("  [↑] 键: ...... 放大音量  [↓] 键: ...... 减少音量");
-        println!("  [Q] 键: ...... 退出播放");
+        println!("  [P] 键: ...... 暂停播放  [空格] 键: ...... 恢复播放");
+        println!("  [←] 键: ...... 上一首    [→] 键: ...... 下一首");
+        println!("  [↑] 键: ...... 放大音量  [↓] 键: ...... 减少音量");
+        println!("  [Q] 键: ...... 退出播放");
         println!("=======================================================");
     }
 
@@ -128,6 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        // ... (省略 4, 5, 6 部分，它们保持不变) ...
         // 4. 计算用于显示元数据的最大宽度
         let terminal_width = terminal::size().map(|(cols, _)| cols).unwrap_or(80) as usize;
         const FIXED_TEXT_OVERHEAD: usize = 65; 
@@ -172,40 +174,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let total_duration = get_total_duration(track_path.as_path());
         let total_duration_str = format_duration(total_duration);
         
-        // 7. 计时器重置
-        let start_time = Instant::now();
-        let mut paused_duration = Duration::from_secs(0); 
-        let mut last_pause_time: Option<Instant> = None; 
+        // 7. 计时器重置：修复暂停 BUG 的核心变量
+        let start_time = Instant::now(); // 歌曲开始时的绝对时间
+        let mut paused_duration = Duration::from_secs(0); // 累积的暂停时长
+        let mut last_pause_time: Option<Instant> = None; // 上一次暂停的开始时刻
+        let mut last_running_time = Duration::from_secs(0); // 🌟 NEW: 暂停前的实际播放时间
         let mut last_progress_update = Instant::now();
         let mut forced_stop = false; // 是否由用户切歌强制停止
 
         // 8. 内部播放循环 (当前歌曲播放循环)
         while !sink.empty() {
             // --- 时间计算 ---
-            let mut current_time = Duration::from_secs(0);
+            // 1. 检查是否处于暂停状态，并记录暂停的起始时刻
             if sink.is_paused() {
-                // 如果暂停，记录暂停开始时间
-                if last_pause_time.is_none() { last_pause_time = Some(Instant::now()); }
+                // 如果是刚刚暂停，记录暂停发生的时间点
+                if last_pause_time.is_none() { 
+                    last_pause_time = Some(Instant::now()); 
+                    // 🌟 关键修复：在暂停发生时，记录当前的准确播放时间
+                    last_running_time = start_time.elapsed().saturating_sub(paused_duration);
+                }
             } else {
-                // 如果恢复播放，计算并累加暂停时长
-                current_time = start_time.elapsed() - paused_duration;
+                // 如果正在播放（或从暂停恢复），计算并累加最近一次的暂停时长
                 if let Some(pause_start) = last_pause_time.take() {
                     paused_duration += pause_start.elapsed();
                 }
             }
-            
-            // --- 刷新显示 ---
+            // 2. 🌟 最终计算：如果暂停，显示时间是静止的 last_running_time；否则是实时计算。
+            let current_time = if sink.is_paused() {
+                last_running_time // 暂停时，时间静止在暂停前的进度
+            } else {
+                // 播放时，正常计算当前进度
+                start_time.elapsed().saturating_sub(paused_duration)
+            };
+            // 刷新显示
             if last_progress_update.elapsed() >= UPDATE_INTERVAL {
                 let current_time_str = format_duration(current_time);
                 let track_count_str = format!("[{}/{}]", current_track_index + 1, total_tracks); 
-                
                 // 提取文件扩展名（用于显示文件类型）
                 let ext = track_path_str.split('.').last().unwrap_or("未知").to_uppercase();
-
                 // 播放模式字符串
                 let play_mode_str: &str = match play_mode{1=>"顺", 2=>"逆", 3=>"随", _=>"未"};
-                
-                let display_text = format!("{}[{}][{}][{}-{}][{}/{}][{:.0}%]", 
+                // 1. 保持您原有的文本格式
+                let display_text_unpadded = format!("{}[{}][{}][{}-{}][{}/{}][{:.0}%]", 
                     track_count_str, 
                     play_mode_str,
                     ext,
@@ -215,13 +225,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     total_duration_str,
                     sink.volume() * 100.0
                 );
-                
-                // 终端操作：移到行首 -> 清除当前行 -> 打印信息 -> 刷新缓冲区
-                execute!(stdout, cursor::MoveToColumn(0), terminal::Clear(ClearType::CurrentLine))?;
-                print!("{}", display_text);
+                // 获取当前终端的宽度 (cols)
+                let terminal_width = terminal::size().map(|(cols, _)| cols).unwrap_or(80) as usize;
+                // 获取新字符串的字符长度
+                let new_len = display_text_unpadded.as_str().width();
+                // 计算需要填充的空格数，直到终端总宽度，留1/5缓冲区
+                let padding_needed = terminal_width.saturating_sub(new_len) * 4 / 5;
+                let padding = " ".repeat(padding_needed);
+                // 最终要打印的、覆盖整行的字符串
+                let display_text = format!("{}{}", display_text_unpadded, padding);
+                // 3. [修复闪烁]：只移动光标并打印
+                execute!(stdout, cursor::MoveToColumn(0))?;
+                print!("{}", display_text); // 使用 print! (不换行)
                 stdout.flush()?; 
                 last_progress_update = Instant::now();
             }
+            // ***--- 刷新显示修改结束 ---***
             
             // --- 用户输入处理 (非阻塞) ---
             if event::poll(Duration::from_millis(100))? {

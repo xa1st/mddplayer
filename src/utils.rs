@@ -1,20 +1,37 @@
 
 use std::{fs, io, path::{Path, PathBuf}};
 use std::time::Duration;
-/// 将字符串截断到最大宽度 (以字符数计)，并在末尾添加 "..." (如果发生截断)。
+use unicode_width::{UnicodeWidthStr, UnicodeWidthChar}; 
+
+/// 根据终端显示宽度截断字符串，并在末尾添加 "..."。
 pub fn truncate_string(s: &str, max_width: usize) -> String {
-    // 留出 3 个字符给 "..."
-    if max_width < 3 { return String::new(); } 
-    // 实际可容纳的字符数
-    let max_len_no_ellipsis = max_width.saturating_sub(3);
-    
-    if s.chars().count() > max_width {
-        // 使用 chars().take() 安全地截断 UTF-8 字符
-        let truncated: String = s.chars().take(max_len_no_ellipsis).collect();
-        format!("{}...", truncated)
-    } else {
-        s.to_string()
+    // 1. 保留 3 个列宽给 "..."
+    let ellipsis_width = 3;
+    if max_width < ellipsis_width { return String::new(); }
+    // 1. 获取最大显示宽度
+    let max_content_width = max_width.saturating_sub(ellipsis_width);
+    // 2. 检查原始字符串的显示宽度 (使用 .width() 替代 UnicodeWidthChar::width)
+    let original_display_width = s.width(); // 🌟 直接在 &str 上调用 .width()
+    // 如果原始字符串的显示宽度已经小于等于最大内容宽度，则直接返回
+    if original_display_width <= max_width {
+        return s.to_string();
     }
+    // 3. 截断逻辑：基于宽度迭代
+    let mut current_width = 0; // 🎯 修复 E0425：声明并初始化宽度变量
+    let mut truncated_string = String::new();
+    for c in s.chars() {
+        // 现在直接在 char 上调用 .width()
+        let char_width = c.width().unwrap_or(0);
+        // 如果加上这个字符后超过了可容纳的最大内容宽度，则停止
+        if current_width + char_width > max_content_width {
+            break; 
+        }
+        truncated_string.push(c);
+        current_width += char_width;
+    }
+    
+    // 4. 返回截断后的字符串并加上省略号
+    format!("{}...", truncated_string)
 }
 
 /// 递归/非递归扫描指定路径，返回支持的音频文件列表。
