@@ -101,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 显示界面信息（非纯净模式下）
     if !args.clean {
         // 打印程序信息和操作指南
-        println!("\n=======================================================");
+        println!("=======================================================");
         println!("  {} (v.{})", NAME, VERSION);
         println!("  主页: {}", URL);
         println!("=======================================================");
@@ -118,7 +118,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut current_track_index: usize = 0;
     let mut index_offset: i32 = 0; // 用于切歌时的索引调整
     let mut last_skip_time = Instant::now() - MIN_SKIP_INTERVAL; // 避免快速连续切歌
-
     loop { 
         // 循环播放检查
         if current_track_index >= total_tracks {
@@ -128,17 +127,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 break; // 退出整个播放循环
             }
         }
-
-        // ... (省略 4, 5, 6 部分，它们保持不变) ...
-        // 4. 计算用于显示元数据的最大宽度
-        let terminal_width = terminal::size().map(|(cols, _)| cols).unwrap_or(80) as usize;
-        const FIXED_TEXT_OVERHEAD: usize = 65; 
-        let available_width = terminal_width.saturating_sub(FIXED_TEXT_OVERHEAD);
-        // 剩余空间分配给标题和艺术家
-        let title_artist_width = available_width * 3 / 2;
         let track_path = &playlist[current_track_index];
         let track_path_str = track_path.to_string_lossy();
-        
         // 5. 文件加载、解码、添加到 Sink
         let file = match File::open(&track_path) {
             Ok(f) => BufReader::new(f),
@@ -148,7 +138,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 continue; 
             }
         };
-        
         sink.clear();
         match Decoder::new(file) {
             Ok(decoder) => sink.append(decoder),
@@ -164,11 +153,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         // 6. 获取元数据和总时长
-        let (mut title, mut artist) = get_title_artist_info(track_path.as_path());
-        
-        // 应用字符串截断，防止溢出终端宽度
-        title = truncate_string(&title, title_artist_width);
-        artist = truncate_string(&artist, title_artist_width);
+        let (title, artist) = get_title_artist_info(track_path.as_path());
 
         // 获取总时长 (使用 metadata 模块的函数)
         let total_duration = get_total_duration(track_path.as_path());
@@ -214,13 +199,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let ext = track_path_str.split('.').last().unwrap_or("未知").to_uppercase();
                 // 播放模式字符串
                 let play_mode_str: &str = match play_mode{1=>"顺", 2=>"逆", 3=>"随", _=>"未"};
-                // 1. 保持您原有的文本格式
-                let display_text_unpadded = format!("{}[{}][{}][{}-{}][{}/{}][{:.0}%]", 
+                // 组装一下当前的字符串，不含歌曲信息
+                // {}[{}][{}][{}-{}][{}/{}][{:.0}%]
+                let mut display_text_unpadded = format!("{}[{}][{}][][{}/{}][{:.0}%]", 
                     track_count_str, 
                     play_mode_str,
                     ext,
-                    title, 
-                    artist, 
+                    current_time_str, 
+                    total_duration_str,
+                    sink.volume() * 100.0
+                );
+                // 动态获取终端宽度，防止用户调整窗口大小
+                let terminal_width = terminal::size().map(|(cols, _)| cols).unwrap_or(80) as usize;
+                // 计算剩余宽度
+                let music_info_width = terminal_width.saturating_sub(display_text_unpadded.as_str().width());
+                // 拿到歌曲信息，并获取长度
+                let mut music_info = format!("{}-{}", truncate_string(&title, music_info_width / 2), truncate_string(&artist, music_info_width / 2));
+                // 如果剩余宽度小于20，则只显示歌曲名
+                if music_info_width < 23 {
+                    music_info = truncate_string(&title, music_info_width);
+                }
+                // 1. 保持您原有的文本格式
+                // {}[{}][{}][{}-{}][{}/{}][{:.0}%]
+                display_text_unpadded = format!("{}[{}][{}][{}][{}/{}][{:.0}%]", 
+                    track_count_str, 
+                    play_mode_str,
+                    ext,
+                    music_info,
                     current_time_str, 
                     total_duration_str,
                     sink.volume() * 100.0
@@ -230,7 +235,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 // 获取新字符串的字符长度
                 let new_len = display_text_unpadded.as_str().width();
                 // 计算需要填充的空格数，直到终端总宽度，留1/5缓冲区
-                let padding_needed = terminal_width.saturating_sub(new_len) * 4 / 5;
+                let padding_needed = terminal_width.saturating_sub(new_len);
+                // 创建填充字符串
                 let padding = " ".repeat(padding_needed);
                 // 最终要打印的、覆盖整行的字符串
                 let display_text = format!("{}{}", display_text_unpadded, padding);
