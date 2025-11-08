@@ -405,6 +405,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 current_track_index = if current_track_index == 0 { total_tracks.saturating_sub(1) } else { current_track_index - 1 };
             }
             index_offset = 0;
+            // -----------------------------------------------------------------
+            // 🌟 BUG 修复：手动切歌后，必须立即启动新目标歌曲的预加载
+            // -----------------------------------------------------------------
+            if current_track_index < total_tracks {
+                let next_path = playlist[current_track_index].clone();
+                start_preloader_thread(next_path, current_track_index, tx.clone());
+            }
         } else {
             execute!(stdout, cursor::MoveToColumn(0), terminal::Clear(ClearType::CurrentLine))?;
             current_track_index += 1;
