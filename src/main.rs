@@ -227,7 +227,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
                         let track_info = format!("[{}/{}]", current_track_index + 1, total_tracks);
                         let error_msg_truncated = truncate_string(&filename, 30); 
-                        eprintln!("{} [错误:{}]: {} -> 跳过...", track_info, err_type, error_msg_truncated);
+                        eprint!("{} [错误:{}]: {} -> 跳过...", track_info, err_type, error_msg_truncated);
 
                         thread::sleep(ERROR_WAIT_DURATION);
                         execute!(stdout, cursor::MoveToColumn(0), terminal::Clear(ClearType::CurrentLine))?;
@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     execute!(stdout, cursor::MoveToColumn(0), terminal::Clear(ClearType::CurrentLine))?;
                     
                     let track_info = format!("[{}/{}]", current_track_index + 1, total_tracks);
-                    eprintln!("{} [错误:加载超时] -> 跳过...", track_info);
+                    eprint!("{} [错误:加载超时] -> 跳过...", track_info);
 
                     thread::sleep(ERROR_WAIT_DURATION);
                     execute!(stdout, cursor::MoveToColumn(0), terminal::Clear(ClearType::CurrentLine))?;
