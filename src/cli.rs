@@ -30,6 +30,6 @@ pub struct Args {
     pub is_loop: bool, 
     
     /// 播放音量
-    #[clap(short = 'm', long = "volume", default_value = "75")]
+    #[clap(short = 'v', long = "volume", default_value = "75")]
     pub volume: u8,
 }

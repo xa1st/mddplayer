@@ -1,6 +1,6 @@
 [package]
 name = "mddplayer"
-version = "1.5.0"
+version = "1.5.1"
 edition = "2024"
 authors = ["Xa1st <xux851@gmail.com>"]
 description = "一个简易的音乐播放器,用于在命令行内播放音乐，只支持mp3/flac/ogg/aac格式的音频文件。"
