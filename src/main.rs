@@ -254,16 +254,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 初始化音频输出和 Sink
     let (_stream, stream_handle) = OutputStream::try_default()?;
     let sink = Sink::try_new(&stream_handle)?;
+    // 初始设置音量
     sink.set_volume(initial_volume.min(1.0).max(0.0));
 
     // 显示界面信息（非纯净模式下）
     if !is_simple_mode {
         println!("=====================【 {} 】======================", NAME);
-        println!(" 版本:v{}        主页:{}", VERSION, URL);
+        println!(" 版本:v{}          主页:{}", VERSION, URL);
         println!("===========================================================");
         println!("====================【 控 制 说 明 】======================");
         println!(" [P]静音/取消静音   [空格]暂停/播放    [Q/Ctrl+C]退出播放");
-        println!(" [←]上一首    [→]下一首    [↑]音量增    [↓]音量减");
+        println!(" [←]上一首      [→]下一首    [↑]音量增    [↓]音量减");
         println!("============================================================");
     }
 
@@ -283,12 +284,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     'outer: loop {
         // 🌟 关键修正：在进入阻塞等待前，快速检查是否有 Ctrl+C/Q 按下
         if event::poll(Duration::from_millis(0))? {
-             if let Event::Key(key_event) = event::read()? {
-                 if key_event.code == KeyCode::Char('q') || key_event.code == KeyCode::Char('Q') || key_event.code == KeyCode::Char('c') {
+            if let Event::Key(key_event) = event::read()? {
+                if key_event.code == KeyCode::Char('q') || key_event.code == KeyCode::Char('Q') || key_event.code == KeyCode::Char('c') {
                     graceful_exit(&mut stdout)?;
                     return Ok(());
                 }
-             }
+            }
         }
         
         // 循环播放检查 (如果当前索引超限，则尝试循环或退出)
@@ -342,6 +343,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let track_path_str = playlist[current_track_index].to_string_lossy().to_string();
         sink.clear();
         sink.append(preloaded_data.decoder);
+        
+        // -----------------------------------------------------------------
+        // 🌟 BUG 修复：切歌后重新应用静音状态或恢复音量
+        // -----------------------------------------------------------------
+        if let Some(_vol) = muted_volume {
+            // 如果处于静音状态，保持静音（音量 0.0）
+            sink.set_volume(0.0);
+        } else {
+            // 如果不是静音状态，确保音量是上次退出内部循环时的音量（或初始音量）
+            // 注意：初始音量已经在 main 277 行设置过，这里可以不处理，
+            // 但为了健壮性（例如用户在切歌过程中调整了系统音量），可以重新应用。
+            // 保持当前 sink 的 volume 即可，因为 adjust_volume 已经更新了它
+        }
+        // -----------------------------------------------------------------
+
 
         if sink.is_paused() {
             sink.play();
@@ -351,14 +367,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let artist = preloaded_data.artist;
         let total_duration = preloaded_data.total_duration;
 
-        initial_title = format!("{}-{}-{}v{}", title, artist, NAME, VERSION);
+        let current_initial_title = format!("{}-{}-{}v{}", title, artist, NAME, VERSION); // 使用新的局部变量
+
         // 根据静音状态设置标题
         let display_title = if muted_volume.is_some() {
-            format!("[静音]{}", initial_title)
+            format!("[静音]{}", current_initial_title)
         } else {
-            initial_title.clone()
+            current_initial_title.clone()
         };
         execute!(stdout, SetTitle(display_title))?;
+        // 更新外层 initial_title 以便内部循环使用
+        initial_title = current_initial_title;
+
 
         let next_index = (current_track_index + 1) % total_tracks;
 
@@ -396,6 +416,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             // 刷新显示 (与原代码一致)
             if last_progress_update.elapsed() >= UPDATE_INTERVAL {
+                // BUG 修复：如果处于静音状态，在 update_progress_display 中显示 0% 音量，否则显示实际音量
+                let display_volume = if muted_volume.is_some() {
+                    0.0
+                } else {
+                    sink.volume()
+                };
+
                 update_progress_display(
                     &mut stdout,
                     current_track_index,
@@ -407,7 +434,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &track_path_str,
                     current_time,
                     total_duration,
-                    sink.volume(),
+                    display_volume, // 使用修复后的音量
                 )?;
                 last_progress_update = Instant::now();
             }
@@ -439,7 +466,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             last_toggle_time = Instant::now();
                             if sink.is_paused() {
                                 sink.play();
-                                execute!(stdout, SetTitle(initial_title.clone()))?;
+                                // BUG 修复：播放时标题应恢复正常（如果非静音）或保持静音（如果静音）
+                                let display_title = if muted_volume.is_some() {
+                                    format!("[静音]{}", initial_title)
+                                } else {
+                                    initial_title.clone()
+                                };
+                                execute!(stdout, SetTitle(display_title))?;
                             } else {
                                 sink.pause();
                                 let pause_title = format!("[暂停]{}", initial_title);
@@ -447,8 +480,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             }
                         }
                         // 音量控制
-                        KeyCode::Up => adjust_volume(&sink, VOLUME_STEP),
-                        KeyCode::Down => adjust_volume(&sink, -VOLUME_STEP),
+                        KeyCode::Up => {
+                            // 调整音量时，如果处于静音状态，应先取消静音，恢复音量并增加
+                            if let Some(vol) = muted_volume.take() {
+                                // 先恢复到静音前的音量
+                                sink.set_volume(vol);
+                                execute!(stdout, SetTitle(initial_title.clone()))?;
+                            }
+                            adjust_volume(&sink, VOLUME_STEP);
+                        },
+                        KeyCode::Down => {
+                            // 调整音量时，如果处于静音状态，应先取消静音，恢复音量并减小
+                            if let Some(vol) = muted_volume.take() {
+                                // 先恢复到静音前的音量
+                                sink.set_volume(vol);
+                                execute!(stdout, SetTitle(initial_title.clone()))?;
+                            }
+                            adjust_volume(&sink, -VOLUME_STEP);
+                        },
                         // 切歌：下一首
                         KeyCode::Right => {
                             if last_skip_time.elapsed() < MIN_SKIP_INTERVAL { continue; }
@@ -481,7 +530,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             index_offset = 0;
             // -----------------------------------------------------------------
-            // 🌟 BUG 修复：手动切歌后，必须立即启动新目标歌曲的预加载
+            // 🌟 修复：手动切歌后，必须立即启动新目标歌曲的预加载
             // -----------------------------------------------------------------
             start_preload_if_valid(&playlist, current_track_index, &tx);
         } else {
