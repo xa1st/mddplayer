@@ -44,15 +44,15 @@ pub fn get_title_artist_info(path: &Path) -> (String, String) {
 }
 
 /// 使用 symphonia 库，通过探测媒体流来获取音频文件的总时长。
-pub fn get_total_duration(path: &Path) -> Duration {
-    // 尝试打开文件并创建 MediaSource
-    let source = match std::fs::File::open(path) {
-        Ok(file) => Box::new(file) as Box<dyn MediaSource>,
-        Err(_) => return Duration::from_secs(0), // 无法打开则返回 0
-    };
-    
+///
+/// `file` 为调用方已打开的文件句柄（可通过 `File::try_clone` 与解码共用同一次打开，
+/// 避免对同一个文件重复 open）。
+///
+/// 注意：WAV 文件不经过此函数——rodio 的 hound 解码器能直接给出 WAV 总时长，
+/// 且 symphonia 侧未启用 WAV 容器支持（避免编译进不需要的 ADPCM）。
+pub fn get_total_duration(path: &Path, file: std::fs::File) -> Duration {
     // 创建媒体源流
-    let media_source_stream = MediaSourceStream::new(source, Default::default());
+    let media_source_stream = MediaSourceStream::new(Box::new(file) as Box<dyn MediaSource>, Default::default());
     
     // 准备文件格式提示 (Hint)
     let mut hint = Hint::new();
